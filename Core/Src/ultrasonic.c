@@ -2,13 +2,19 @@
 #include "main.h"
 
 extern TIM_HandleTypeDef htim1;
+//타임라인 확인용 변수들 5개
+volatile uint16_t g_trace_echo_ticks; //폴링에지에서 echo펄스 폭 저장 <--(uint16_t)(now - s_echoStartCnt)로 계산
+volatile uint8_t g_trace_echo_edge;  //에코핀의 현재 값. rising edge부분은 그냥 1로 취급
+volatile uint8_t g_trace_echo_state; //폴링에서
+volatile uint32_t g_trace_edge_count; //에지 개수 저장
 
-volatile uint16_t g_trace_echo_ticks;
-volatile uint8_t g_trace_echo_edge;
-volatile uint8_t g_trace_echo_state;
-volatile uint32_t g_trace_edge_count;
+volatile uint32_t g_trace_triger_edge;
+volatile uint32_t g_trace_triger_ticks;
+volatile uint32_t g_trace_triger_state;
+volatile uint32_t g_trace_triger_count;
 
-#define US_SAMPLE_PERIOD_MS 200U
+
+#define US_SAMPLE_PERIOD_MS 1000U  //기다리는 시간 200 --> 1000ms 주기 변경
 #define US_PUBLISH_PERIOD_MS 1000U
 #define US_ECHO_TIMEOUT_MS 35U
 #define US_TRIG_PULSE_US 10U
@@ -89,6 +95,11 @@ void Ultrasonic_Init(void)
   g_trace_echo_edge = 0U;
   g_trace_echo_state = 0U;
   g_trace_edge_count = 0U;
+  g_trace_triger_ticks = 0U;
+  g_trace_triger_edge = 0U;
+  g_trace_triger_count=0U;
+  g_trace_triger_state = 0U;
+
 }
 void Ultrasonic_Task(void)
 {
@@ -105,15 +116,21 @@ void Ultrasonic_Task(void)
   switch (s_state)
   {
     case US_STATE_IDLE:
-      if ((now - s_lastSampleTick) >= US_SAMPLE_PERIOD_MS)
+      if ((now - s_lastSampleTick) >= US_SAMPLE_PERIOD_MS) //US_SAMPLE_PERIOD_MS가 high되는 주기
       {
         s_lastSampleTick = now;
+        g_trace_triger_ticks=1U;
+
         s_echoRising = 0U;
         s_echoDone = 0U;
 
+
+
+
+
         trigStartCnt = US_GetCounter();
         HAL_GPIO_WritePin(TRIG_GPIO_Port, TRIG_Pin, GPIO_PIN_SET);
-        while ((uint16_t)(US_GetCounter() - trigStartCnt) < US_TRIG_PULSE_US)
+        while ((uint16_t)(US_GetCounter() - trigStartCnt) < US_TRIG_PULSE_US) //10ms까지 하이 유지
         {
         }
         HAL_GPIO_WritePin(TRIG_GPIO_Port, TRIG_Pin, GPIO_PIN_RESET);
@@ -121,10 +138,14 @@ void Ultrasonic_Task(void)
         s_echoStartTick = now;
         s_state = US_STATE_WAIT_ECHO;
         g_trace_echo_state = 2U;
+        g_trace_triger_ticks= 0U;
       }
       break;
 
+
+
     case US_STATE_WAIT_ECHO:
+
       if (s_echoDone != 0U)
       {
         if (s_echoDone == 1U)

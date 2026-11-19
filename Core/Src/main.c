@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "ultrasonic.h"
+#include "dht.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,12 +78,60 @@ PUTCHAR_PROTOTYPE
   return ch;
 }
 
+static uint16_t Sensor_SoundSpeedX10(int16_t temperature_c_x10, uint16_t humidity_rh_x10) //음속 보정함수
+{
+  int32_t speed_x10;
+
+  speed_x10 = 3313 + ((606 * (int32_t)temperature_c_x10) / 1000); //음속 보정
+  speed_x10 += (12 * (int32_t)humidity_rh_x10) / 1000;
+
+  if (speed_x10 < 2500)
+  {
+    speed_x10 = 2500;
+  }
+  else if (speed_x10 > 4000)
+  {
+    speed_x10 = 4000;
+  }
+
+  return (uint16_t)speed_x10;
+}
+
 static void Sensor_Task(void)
 {
   Ultrasonic_Result result;
-  char line[80];
+  Dht_Result dht;
+  char line[96];
+  int32_t temperature;
 
+  Dht_Task();
   Ultrasonic_Task();
+
+  if (Dht_GetResult(&dht) != 0U)
+  {
+    temperature = (int32_t)dht.temperature_c_x10;
+    (void)snprintf(line, sizeof(line), "TH,%lu,%d,%u,%u,%lu\n",
+                   (unsigned long)dht.timestamp_ms,
+                   (int)temperature,
+                   (unsigned int)dht.humidity_rh_x10,
+                   (unsigned int)dht.valid,
+                   (unsigned long)dht.errors);
+    printf("%s", line);
+    printf("ENV,%c%u.%uC,%u.%u%%RH\n",
+           (temperature < 0) ? '-' : '+',
+           (unsigned int)((temperature < 0) ? -temperature : temperature) / 10U,
+           (unsigned int)((temperature < 0) ? -temperature : temperature) % 10U,
+           (unsigned int)dht.humidity_rh_x10 / 10U,
+           (unsigned int)dht.humidity_rh_x10 % 10U);
+
+    if (dht.valid != 0U)
+    {
+      uint16_t speed_x10 = Sensor_SoundSpeedX10(dht.temperature_c_x10,
+                                                dht.humidity_rh_x10);
+      Ultrasonic_SetSoundSpeedX10(speed_x10);
+      printf("S,%u\n", (unsigned int)speed_x10);
+    }
+  }
 
   if (Ultrasonic_GetResult(&result) != 0U)
   {
@@ -128,10 +177,13 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM1_Init();
   MX_USART2_UART_Init();
+
   /* USER CODE BEGIN 2 */
   Ultrasonic_Init();
-  printf("\n=== F411_TASK_LAB Step 2: Ultrasonic ===\n");
+  Dht_Init();
+  printf("\n=== F411_TASK_LAB Step 3: Ultrasonic + DHT ===\n");
   printf("HC-SR04: TRIG=PA1, ECHO=PA0, 5 Hz sample, 1 Hz median\n");
+  printf("DHTxx: DATA=PA4, 2 s sample, TIM1 1 MHz timebase\n");
   printf("TIM1: PCLK2=%luHz divider=%lu ARR=%lu tick=%luHz\n",
          (unsigned long)HAL_RCC_GetPCLK2Freq(),
          (unsigned long)(htim1.Init.Prescaler + 1U),
